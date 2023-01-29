@@ -60,3 +60,40 @@ print(data)
 
 ```
 
+Next I also want to count the number of rows cumulatively across the 60 different test datasets to help determine if we want to change the train-test split.
+
+```{r testCount}
+test_count <- 0
+numbers <- seq(1, 31)
+numbers <- sprintf("%02d", numbers)
+
+for (i in 1:29) {
+  path_name <- paste("./BlogFeedback/blogData_test-2012.02.", numbers[i], ".00_00.csv", sep = "")
+  test_data <- read_csv(path_name, col_names = FALSE, show_col_types = FALSE)
+  test_count <- test_count + nrow(test_data)
+}
+
+
+for (i in 1:25) {
+  path_name <- paste("./BlogFeedback/blogData_test-2012.03.", numbers[i], ".00_00.csv", sep = "")
+  test_data <- read_csv(path_name, col_names = FALSE, show_col_types = FALSE)
+  test_count <- test_count + nrow(test_data)
+}
+
+for (i in 26:31) {
+  path_name <- paste("./BlogFeedback/blogData_test-2012.03.", numbers[i], ".01_00.csv", sep = "")
+  test_data <- read_csv(path_name, col_names = FALSE, show_col_types = FALSE)
+  test_count <- test_count + nrow(test_data)
+}
+
+print(test_count)
+print(nrow(data))
+
+```
+
+This means just from the way the data set was split from the repository, we would have 7624 rows for testing and 52397 rows for training. This creates about a 87\% \/ 13\% split between the training and testing data respectively, but typically a 80\% \/ 20\% split is used. Since we have 60021 instances in total, it would make sense for us to try to balance out the split so that there is more testing data, so later we can have more confidence in our generalized error calculation. The easiest way for us to achieve that 80\% \/ 20\% split is for us to randomly select 21901 rows from the initial training dataset to NOT include in our analysis. That way we would have 7624 rows for testing, 30496 rows for training, and 38120 instances in total. 
+
+With this new split and removal of some training data, we are still well above the minimum requirement for number of rows, and we do not have to worry at all about whether the train \/ test split is getting messed up by fact that some of this data relies on time covariates (i.e. 24 hrs before, 48hrs before) because we are not transitioning training data into testing data.
+
+
+
