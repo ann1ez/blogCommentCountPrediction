@@ -8,6 +8,7 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(readr)
+library(tidyverse)
 ```
 
 ## Data Cleaning
@@ -16,7 +17,7 @@ Here I will be adding an extra row for easier understanding of what every value 
 
 ```{r blogset}
 data <- read_csv("./BlogFeedback/blogData_train.csv", col_names = FALSE, show_col_types = FALSE)
-basic_attributes <- c("total_before", "24hr_before", "48hr_to_24hr", "first_24hr", "change_between_two_days")
+basic_attributes <- c("total_before", "before_24hr", "from_48hr_to_24hr", "first_24hr", "change_between_two_days")
 prefix <- c("avg", "sd", "min", "max", "med")
 suffix <- c("comments", "links")
 for (i in 1:5){
@@ -54,7 +55,7 @@ colnames(data)[277] <- "parent_pages_count"
 colnames(data)[278] <- "min_parent_pages_comments"
 colnames(data)[279] <- "max_parent_pages_comments"
 colnames(data)[280] <- "avg_parent_pages_comments"
-colnames(data)[281] <- "24hr_after_comments"
+colnames(data)[281] <- "after_24hr_comments"
 print(data)
 
 
@@ -95,5 +96,69 @@ This means just from the way the data set was split from the repository, we woul
 
 With this new split and removal of some training data, we are still well above the minimum requirement for number of rows, and we do not have to worry at all about whether the train \/ test split is getting messed up by fact that some of this data relies on time covariates (i.e. 24 hrs before, 48hrs before) because we are not transitioning training data into testing data.
 
+## Data Transformation
+Let's add in some new columns. 1) the binary output 2) day of the week categories.
 
 
+
+Also, let's delete columns that seem to add no value in at all because they are almost all zeros.
+
+## Data Exploration
+
+Explroing patterns for binary prediction variable:
+
+```{r exploration, echo = FALSE}
+
+ggplot(data = data, mapping = aes(x = total_before_comments, y = after_24hr_comments - before_24hr_comments)) + 
+  geom_point(mapping = aes(color = time_length)) +
+  labs(title = "Change in comments between Day 1 and Day 2 vs Day 2 and Day 3")
+
+```
+```{r exploration1, echo = FALSE}
+
+ggplot(data = data, mapping = aes(x = change_between_two_days_comments, y = after_24hr_comments - before_24hr_comments)) + 
+  geom_point(mapping = aes(color = time_length)) +
+  labs(title = "Change in Number of Comments Across Two Days Before and After Basetime",
+       x = "D2 - D1",
+       y = "D3 - D2",
+       color = "Age of Blog Post")
+
+```
+
+Checking for correlation between variables:
+
+```{r exploration3, echo = FALSE}
+
+ggplot(data = data, mapping = aes(x = time_length, y = after_24hr_comments)) + 
+  geom_point(mapping = aes(color = before_24hr_comments)) +
+  labs(title = "Time vs Comments Outcome")
+
+ggplot(data = data, mapping = aes(x = time_length, y = after_24hr_comments - before_24hr_comments)) + 
+  geom_point(mapping = aes(color = before_24hr_comments)) +
+  labs(title = "Time vs Comments Outcome")
+
+```
+
+
+```{r exploration4, echo = FALSE}
+
+ggplot(data = data, mapping = aes(x = before_24hr_comments, y = after_24hr_comments)) + 
+  geom_point() +
+  geom_smooth(se = FALSE) + 
+  labs(title = "24 hours before vs after")
+
+ggplot(data = data, mapping = aes(x = avg_before_24hr_comments, y = after_24hr_comments)) + 
+  geom_point() +
+  geom_smooth(se = FALSE) + 
+  labs(title = "24 hours before vs after")
+
+```
+
+
+```{r exploration3, echo = FALSE}
+
+ggplot(data = data, mapping = aes(x = before_24hr_comments, y = avg_before_24hr_comments)) + 
+  geom_point() +
+  labs(title = "Time vs Comments Outcome")
+
+```
