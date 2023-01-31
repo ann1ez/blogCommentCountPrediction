@@ -29,7 +29,8 @@ for (column in 63:262) {
     }
     data2$sum_occurences_freq_word[row] <- data2$sum_occurences_freq_word[row] + data2[row, column]
   }
-}max(data2$sum_occurences_freq_word)
+}
+max(data2$sum_occurences_freq_word)
 
 # create new binary var: occurrence of 200 words or not
 data2$occurence_freq_word <- rep(0, nrow(data2))
