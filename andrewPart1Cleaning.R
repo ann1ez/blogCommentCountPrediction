@@ -10,16 +10,6 @@ length(unique(randomRows)) # check
 data2 <- data[-randomRows,]
 nrow(data2)
 
-
-## andrew exploratory analysis
-
-# random regressions
-#- parents vs target
-
-# random regressions w/interactions
-
-# 200 word analysis: binary var + regression
-
 # transform -1's --> 1's in 200 word binary variables
 for (i in 63:262) { 
   tempVec <- data2[,i]
