@@ -1,0 +1,175 @@
+---
+title: "project_part_2"
+author: "Annie Zhu"
+date: "2023-02-15"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(tidyverse)
+library(cvTools)
+```
+
+## Import and Initial Exploration
+
+
+```{r cars}
+data <- read_csv("./trainingData.csv")
+train_data <- data %>%
+  mutate(difference_in_ROG = (after_24hr_comments - before_24hr_comments) - change_between_two_days_comments) %>%
+  mutate(direction_of_growth = ifelse(difference_in_ROG<0, 0, 1)) %>%
+  select(-c(difference_in_ROG))
+
+select(train_data, before_24hr_comments, from_48hr_to_24hr_comments, change_between_two_days_comments, after_24hr_comments, direction_of_growth)
+```
+
+```{r explore, echo = FALSE}
+ggplot(data = train_data, mapping = aes(x = first_24hr_comments, y = direction_of_growth)) + 
+  geom_point() +
+  labs(title = "")
+
+ggplot(data = train_data, mapping = aes(x = total_before_comments, y = direction_of_growth)) + 
+  geom_point() +
+  labs(title = "")
+
+ggplot(data = train_data, mapping = aes(x = time_length, y = direction_of_growth)) + 
+  geom_point() +
+  labs(title = "")
+```
+thinking about the alternate option
+```{r alternate, echo = FALSE}
+alt_data <- mutate(train_data, thesholded = ifelse(after_24hr_comments<10, 0, 1))
+select(alt_data, before_24hr_comments, from_48hr_to_24hr_comments, change_between_two_days_comments, after_24hr_comments, thesholded)
+
+ggplot(data = alt_data, mapping = aes(x = first_24hr_comments, y = thesholded)) + 
+  geom_point() +
+  labs(title = "")
+
+ggplot(data = alt_data, mapping = aes(x = total_before_comments, y = thesholded)) + 
+  geom_point() +
+  labs(title = "")
+
+ggplot(data = alt_data, mapping = aes(x = time_length, y = thesholded)) + 
+  geom_point() +
+  labs(title = "")
+```
+
+
+## Creating Baselines
+
+for continuous
+
+```{r base1}
+model <- lm(after_24hr_comments ~ ., data=train_data)
+summary(model)
+```
+for binary
+
+```{r base2}
+bin_data <- select(train_data, -c(after_24hr_comments, 
+                                  min_before_24hr_comments, 
+                                  min_before_24hr_links, 
+                                  min_first_24hr_comments, 
+                                  min_first_24hr_links, 
+                                  min_change_between_two_days_comments,
+                                  change_between_two_days_comments,
+                                  change_between_two_days_links))
+bin_data$direction_of_growth = as.factor(bin_data$direction_of_growth)
+bin_model <- glm(direction_of_growth ~ ., data=bin_data, family = "binomial")
+summary(bin_model)
+```
+
+Trying to identify if there are two perfectly correlated columns
+```{r correlation}
+# the line below checks if there are any NA values in any of the columns
+# sapply(bin_data, function(x) sum(is.na(x)))
+
+```
+
+evaluation of the baseline
+(side note - should we use a validation set?)
+```{r evaluation, warning=FALSE}
+evaluation <- function(model, data) {
+  # Prediction
+  p1<-predict(model, data, 
+              type = 'response')
+  
+  # confusion Matrix 
+  pre1<-ifelse(p1 > 0.5, 1, 0)
+  table<-table(Prediction = pre1, 
+               Actual = data$direction_of_growth) 
+  print(table)
+  
+  # getting the metrics
+  TN = table[1]
+  FP = table[2]
+  FN = table[3]
+  TP = table[4]
+  accuracy = (TP + TN) / nrow(data)
+  TPR = TP / (TP + FN)
+  FPR = FP / (FP + TN)
+  
+  print("")
+  print(paste("The accuracy is", accuracy))
+  print(paste("The TPR is", TPR))
+  print(paste("The FPR is", FPR))
+}
+evaluation(bin_model, bin_data)
+```
+Accuracy  is 87 percent.
+
+now we try to improve on the baseline a little
+- interaction terms
+- higher powers
+- logistic transformation
+- get rid of columns with regularization
+
+First is just adding interaction terms
+```{r improving}
+new_model <- glm(direction_of_growth ~ . + time_length*total_before_comments + 
+                   time_length*before_24hr_comments + 
+                   time_length*from_48hr_to_24hr_comments +
+                   time_length*first_24hr_comments +
+                   med_before_24hr_comments*before_24hr_comments + 
+                   med_before_24hr_comments*from_48hr_to_24hr_comments +
+                   med_first_24hr_comments*before_24hr_comments+
+                   med_first_24hr_comments*from_48hr_to_24hr_comments, 
+                 data=bin_data, family = "binomial")
+
+evaluation(new_model, bin_data)
+
+```
+Accuracy is 89 percent.
+
+Next, we are adding the logistic transformations. there is some intuition for this based on what the graphs look like
+```{r improving}
+log_data <- data.frame(bin_data)
+log_data$total_before_comments <- log(log_data$total_before_comments + 1)
+log_data$before_24hr_comments <- log(log_data$before_24hr_comments + 1)
+log_data$from_48hr_to_24hr_comments <- log(log_data$from_48hr_to_24hr_comments + 1)
+log_data$med_before_24hr_comments <- log(log_data$med_before_24hr_comments + 1)
+log_data$med_first_24hr_comments <- log(log_data$med_first_24hr_comments + 1)
+
+log_model <- glm(direction_of_growth ~ . + time_length*total_before_comments + 
+                   time_length*before_24hr_comments + 
+                   time_length*from_48hr_to_24hr_comments +
+                   time_length*first_24hr_comments +
+                   med_before_24hr_comments*before_24hr_comments + 
+                   med_before_24hr_comments*from_48hr_to_24hr_comments +
+                   med_first_24hr_comments*before_24hr_comments+
+                   med_first_24hr_comments*from_48hr_to_24hr_comments, 
+                 data=log_data, family = "binomial")
+
+evaluation(log_model, log_data)
+
+```
+Accuracy is 94 percent.
+
+
+
+
+
+
+
