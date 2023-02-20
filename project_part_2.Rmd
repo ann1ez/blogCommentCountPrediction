@@ -78,14 +78,7 @@ bin_data <- select(train_data, -c(after_24hr_comments,
                                   change_between_two_days_links))
 bin_data$direction_of_growth = as.factor(bin_data$direction_of_growth)
 bin_model <- glm(direction_of_growth ~ ., data=bin_data, family = "binomial")
-summary(bin_model)
-```
-
-Trying to identify if there are two perfectly correlated columns
-```{r correlation}
-# the line below checks if there are any NA values in any of the columns
-# sapply(bin_data, function(x) sum(is.na(x)))
-
+# summary(bin_model)
 ```
 
 evaluation of the baseline
@@ -119,6 +112,21 @@ evaluation <- function(model, data) {
 evaluation(bin_model, bin_data)
 ```
 Accuracy  is 87 percent.
+
+## using a validation set for the baseline
+
+```{r validation}
+set.seed(2025)
+sample <- sample(seq_len(nrow(bin_data)), size = 24397)
+bin_train <- bin_data[sample,]
+bin_validate <- bin_data[-sample,]
+
+bin_val_model <- glm(direction_of_growth ~ ., data=bin_train, family = "binomial")
+evaluation(bin_val_model, bin_validate)
+```
+accuracy is now 86.8 percent, which is only a very small difference.
+
+## Improving on the baseline
 
 now we try to improve on the baseline a little
 - interaction terms
@@ -167,7 +175,27 @@ evaluation(log_model, log_data)
 ```
 Accuracy is 94 percent.
 
+## improved model with validation set
+to compare how the estimate of accuracy changes with a validation set
 
+```{r validation2}
+set.seed(2025)
+sample <- sample(seq_len(nrow(log_data)), size = 24397)
+log_train <- bin_data[sample,]
+log_validate <- bin_data[-sample,]
+
+log_val_model <- glm(direction_of_growth ~ . + time_length*total_before_comments + 
+                   time_length*before_24hr_comments + 
+                   time_length*from_48hr_to_24hr_comments +
+                   time_length*first_24hr_comments +
+                   med_before_24hr_comments*before_24hr_comments + 
+                   med_before_24hr_comments*from_48hr_to_24hr_comments +
+                   med_first_24hr_comments*before_24hr_comments+
+                   med_first_24hr_comments*from_48hr_to_24hr_comments, 
+                 data=log_train, family = "binomial")
+evaluation(log_val_model, log_validate)
+```
+Accuracy is 89 percent. this is a dip as expected.  
 
 
 
