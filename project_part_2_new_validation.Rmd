@@ -1,0 +1,173 @@
+---
+title: "project_part_2_new_validation"
+author: "Annie Zhu"
+date: "2023-02-20"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(tidyverse)
+library(cvTools)
+```
+
+## Creating a validation set
+Here we are creating a validation set to get a 80-10-10 split for training, validation, and testing. We end up with 3,641 rows in the validation set, 30,496 rows in the training set, and 3,983 rows in the testing set.
+
+```{r cars}
+val_data <- read_csv("./BlogFeedback/blogData_test-2012.02.01.00_00.csv", 
+                     col_names = FALSE, show_col_types = FALSE)
+numbers <- seq(1, 31)
+numbers <- sprintf("%02d", numbers)
+
+for (i in 2:29) {
+  path_name <- paste("./BlogFeedback/blogData_test-2012.02.", numbers[i], 
+                     ".00_00.csv", sep = "")
+  new_data <- read_csv(path_name, col_names = FALSE, show_col_types = FALSE)
+  val_data <- rbind(val_data, new_data)
+}
+
+new_data <- read_csv("./BlogFeedback/blogData_test-2012.03.01.00_00.csv", 
+                     col_names = FALSE, show_col_types = FALSE)
+val_data <- rbind(val_data, new_data)
+print(nrow(val_data))
+print(val_data)
+```
+
+## Modifying the dataset
+We need to add the column names.
+```{r transformation}
+## changing the column names
+basic_attributes <- c("total_before", "before_24hr", "from_48hr_to_24hr", "first_24hr", "change_between_two_days")
+prefix <- c("avg", "sd", "min", "max", "med")
+suffix <- c("comments", "links")
+for (i in 1:5){
+  for (j in 1:2) {
+    for (k in 1:5) {
+      index = 10 * (i-1) + 5 * (j-1) + k
+      colnames(val_data)[index] <- paste(prefix[k], basic_attributes[i], suffix[j], sep = "_")
+    }
+  }
+}
+
+for (i in 1:5){
+  for (j in 1:2) {
+    index = 50 + i + 5 * (j-1)
+    colnames(val_data)[index] <- paste(basic_attributes[i], suffix[j], sep = "_")
+  }
+}
+
+colnames(val_data)[61] <- "time_length"
+colnames(val_data)[62] <- "post_length"
+for (i in 1: 200){
+  index = toString(i)
+  colnames(val_data)[i + 62] <- paste("freq_word_feature_", index, sep = "")
+}
+
+days <- c("mon", "tues", "wed", "thurs", "fri", "sat", "sun")
+for (i in 1:7) {
+  colnames(val_data)[i + 262] <- paste("basetime", days[i], sep = "_")
+}
+for (i in 1:7) {
+  colnames(val_data)[i + 269] <- paste("publication", days[i], sep = "_")
+}
+
+colnames(val_data)[277] <- "parent_pages_count"
+colnames(val_data)[278] <- "min_parent_pages_comments"
+colnames(val_data)[279] <- "max_parent_pages_comments"
+colnames(val_data)[280] <- "avg_parent_pages_comments"
+colnames(val_data)[281] <- "after_24hr_comments"
+
+## adding necessary binary outcome column
+val_data <- val_data %>%
+  mutate(difference_in_ROG = (after_24hr_comments - before_24hr_comments) - change_between_two_days_comments) %>%
+  mutate(direction_of_growth = ifelse(difference_in_ROG<0, 0, 1)) %>%
+  select(-c(difference_in_ROG))
+print(val_data)
+```
+
+## Training Baseline
+
+You can also embed plots, for example:
+
+```{r baseline}
+train_data <- read_csv("./trainingData.csv") %>%
+  mutate(difference_in_ROG = (after_24hr_comments - before_24hr_comments) - change_between_two_days_comments) %>%
+  mutate(direction_of_growth = ifelse(difference_in_ROG<0, 0, 1)) %>%
+  select(-c(difference_in_ROG))
+
+bin_data <- select(train_data, -c(after_24hr_comments, 
+                                  min_before_24hr_comments, 
+                                  min_before_24hr_links, 
+                                  min_first_24hr_comments, 
+                                  min_first_24hr_links, 
+                                  min_change_between_two_days_comments,
+                                  change_between_two_days_comments,
+                                  change_between_two_days_links))
+bin_data$direction_of_growth = as.factor(bin_data$direction_of_growth)
+bin_model <- glm(direction_of_growth ~ ., data=bin_data, family = "binomial")
+```
+
+
+## Testing Baseline
+
+```{r eval1}
+evaluation <- function(model, data) {
+  # Prediction
+  p1<-predict(model, data, 
+              type = 'response')
+  
+  # confusion Matrix 
+  pre1<-ifelse(p1 > 0.5, 1, 0)
+  table<-table(Prediction = pre1, 
+               Actual = data$direction_of_growth) 
+  print(table)
+  
+  # getting the metrics
+  TN = table[1]
+  FP = table[2]
+  FN = table[3]
+  TP = table[4]
+  accuracy = (TP + TN) / nrow(data)
+  TPR = TP / (TP + FN)
+  FPR = FP / (FP + TN)
+  
+  print("")
+  print(paste("The accuracy is", accuracy))
+  print(paste("The TPR is", TPR))
+  print(paste("The FPR is", FPR))
+}
+evaluation(bin_model, val_data)
+```
+The accuracy is 0.880801977478715.
+
+## Training Improved Model
+
+You can also embed plots, for example:
+
+```{r improved}
+log_data <- data.frame(bin_data)
+log_data$total_before_comments <- log(log_data$total_before_comments + 1)
+log_data$before_24hr_comments <- log(log_data$before_24hr_comments + 1)
+log_data$from_48hr_to_24hr_comments <- log(log_data$from_48hr_to_24hr_comments + 1)
+log_data$med_before_24hr_comments <- log(log_data$med_before_24hr_comments + 1)
+log_data$med_first_24hr_comments <- log(log_data$med_first_24hr_comments + 1)
+
+log_model <- glm(direction_of_growth ~ . + time_length*total_before_comments + 
+                   time_length*before_24hr_comments + 
+                   time_length*from_48hr_to_24hr_comments +
+                   time_length*first_24hr_comments +
+                   med_before_24hr_comments*before_24hr_comments + 
+                   med_before_24hr_comments*from_48hr_to_24hr_comments +
+                   med_first_24hr_comments*before_24hr_comments+
+                   med_first_24hr_comments*from_48hr_to_24hr_comments, 
+                 data=log_data, family = "binomial")
+```
+
+## Testing Improved Model
+
+```{r eval2}
+evaluation(log_model, val_data)
+```
+The accuracy is 0.888766822301565.
