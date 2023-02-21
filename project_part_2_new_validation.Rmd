@@ -10,6 +10,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(readr)
 library(tidyverse)
 library(cvTools)
+library(glmnet)
 ```
 
 ## Creating a validation set
@@ -84,6 +85,16 @@ val_data <- val_data %>%
   mutate(difference_in_ROG = (after_24hr_comments - before_24hr_comments) - change_between_two_days_comments) %>%
   mutate(direction_of_growth = ifelse(difference_in_ROG<0, 0, 1)) %>%
   select(-c(difference_in_ROG))
+
+## deleting columns to avoid dependence between columns
+val_data <- select(val_data, -c(after_24hr_comments, 
+                                  min_before_24hr_comments, 
+                                  min_before_24hr_links, 
+                                  min_first_24hr_comments, 
+                                  min_first_24hr_links, 
+                                  min_change_between_two_days_comments,
+                                  change_between_two_days_comments,
+                                  change_between_two_days_links))
 print(val_data)
 ```
 
@@ -142,7 +153,42 @@ evaluation(bin_model, val_data)
 ```
 The accuracy is 0.880801977478715.
 
-## Training Improved Model
+## Alternative baseline
+always predict whatever is more popular
+```{r alternative}
+table(train_data$direction_of_growth)
+```
+
+```{r alternative_eval}
+vec <- c(rep(1, nrow(val_data)))
+table<-table(Prediction = vec, 
+             Actual = val_data$direction_of_growth) 
+print(table)
+
+# getting the metrics
+TN = 0
+FP = 0
+FN = table[1]
+TP = table[2]
+accuracy = (TP + TN) / nrow(val_data)
+TPR = TP / (TP + FN)
+FPR = FP / (FP + TN)
+
+print("")
+print(paste("The accuracy is", accuracy))
+print(paste("The TPR is", TPR))
+
+```
+The accuracy is 0.744575666025817.
+
+## Third possible baseline
+```{r base2}
+# model = glm(direction_of_growth ~ . + .:., data=bin_data, family = "binomial")
+# evaluation(model, val_data)
+```
+Error: vector memory exhausted (limit reached?)
+
+## Training Altered Model 1
 
 You can also embed plots, for example:
 
@@ -165,9 +211,70 @@ log_model <- glm(direction_of_growth ~ . + time_length*total_before_comments +
                  data=log_data, family = "binomial")
 ```
 
-## Testing Improved Model
+## Testing Altered Model 1
 
 ```{r eval2}
 evaluation(log_model, val_data)
 ```
 The accuracy is 0.888766822301565.
+
+## Training and Testing Altered Model 2
+
+removing the log parts
+
+```{r improved2}
+new_model <- glm(direction_of_growth ~ . + time_length*total_before_comments + 
+                   time_length*before_24hr_comments + 
+                   time_length*from_48hr_to_24hr_comments +
+                   time_length*first_24hr_comments +
+                   med_before_24hr_comments*before_24hr_comments + 
+                   med_before_24hr_comments*from_48hr_to_24hr_comments +
+                   med_first_24hr_comments*before_24hr_comments+
+                   med_first_24hr_comments*from_48hr_to_24hr_comments, 
+                 data=bin_data, family = "binomial")
+
+evaluation(new_model, val_data)
+```
+The accuracy is 0.895358418017028.
+
+## Training and Testing Altered Model 3
+trying out regularization.
+
+```{r improved2}
+x <- select(bin_data, -c(direction_of_growth)) %>% data.matrix()
+y <- bin_data$direction_of_growth
+regularized_model <- glmnet(x, y, alpha = 0.01,  lambda = 0.5, family = "binomial")
+coef(regularized_model)
+```
+now we evaluate:
+```{r reg_eval}
+new_x <- select(val_data, -c(direction_of_growth)) %>% data.matrix()
+y_predicted <- predict(regularized_model, s = .1, newx = new_x)
+# print(y_predicted)
+# confusion Matrix 
+pre1<-ifelse(y_predicted > 0.5, 1, 0)
+table<-table(Prediction = pre1, 
+             Actual = val_data$direction_of_growth) 
+print(table)
+
+# getting the metrics
+TN = table[1]
+FP = table[2]
+FN = table[3]
+TP = table[4]
+accuracy = (TP + TN) / nrow(val_data)
+TPR = TP / (TP + FN)
+FPR = FP / (FP + TN)
+
+print("")
+print(paste("The accuracy is", accuracy))
+print(paste("The TPR is", TPR))
+print(paste("The FPR is", FPR))
+```
+## Making a graph
+we want let deciding what hyper-parameters to use.
+```{r graph, echo=FALSE}
+# TODO later, time permitting
+```
+
+Let's analyze the graph now.
