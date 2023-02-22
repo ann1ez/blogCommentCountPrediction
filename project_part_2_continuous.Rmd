@@ -1,0 +1,144 @@
+---
+title: "project_part_2_continuous"
+author: "Annie Zhu"
+date: "2023-02-22"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(tidyverse)
+library(cvTools)
+library(glmnet)
+```
+
+## Validation Set
+
+getting validation set imported and transformed into the right form.
+
+```{r validation}
+val_data <- read_csv("./BlogFeedback/blogData_test-2012.02.01.00_00.csv", 
+                     col_names = FALSE, show_col_types = FALSE)
+numbers <- seq(1, 31)
+numbers <- sprintf("%02d", numbers)
+
+for (i in 2:29) {
+  path_name <- paste("./BlogFeedback/blogData_test-2012.02.", numbers[i], 
+                     ".00_00.csv", sep = "")
+  new_data <- read_csv(path_name, col_names = FALSE, show_col_types = FALSE)
+  val_data <- rbind(val_data, new_data)
+}
+
+new_data <- read_csv("./BlogFeedback/blogData_test-2012.03.01.00_00.csv", 
+                     col_names = FALSE, show_col_types = FALSE)
+val_data <- rbind(val_data, new_data)
+
+## changing the column names
+basic_attributes <- c("total_before", "before_24hr", "from_48hr_to_24hr", "first_24hr", "change_between_two_days")
+prefix <- c("avg", "sd", "min", "max", "med")
+suffix <- c("comments", "links")
+for (i in 1:5){
+  for (j in 1:2) {
+    for (k in 1:5) {
+      index = 10 * (i-1) + 5 * (j-1) + k
+      colnames(val_data)[index] <- paste(prefix[k], basic_attributes[i], suffix[j], sep = "_")
+    }
+  }
+}
+
+for (i in 1:5){
+  for (j in 1:2) {
+    index = 50 + i + 5 * (j-1)
+    colnames(val_data)[index] <- paste(basic_attributes[i], suffix[j], sep = "_")
+  }
+}
+
+colnames(val_data)[61] <- "time_length"
+colnames(val_data)[62] <- "post_length"
+for (i in 1: 200){
+  index = toString(i)
+  colnames(val_data)[i + 62] <- paste("freq_word_feature_", index, sep = "")
+}
+
+days <- c("mon", "tues", "wed", "thurs", "fri", "sat", "sun")
+for (i in 1:7) {
+  colnames(val_data)[i + 262] <- paste("basetime", days[i], sep = "_")
+}
+for (i in 1:7) {
+  colnames(val_data)[i + 269] <- paste("publication", days[i], sep = "_")
+}
+
+colnames(val_data)[277] <- "parent_pages_count"
+colnames(val_data)[278] <- "min_parent_pages_comments"
+colnames(val_data)[279] <- "max_parent_pages_comments"
+colnames(val_data)[280] <- "avg_parent_pages_comments"
+colnames(val_data)[281] <- "after_24hr_comments"
+```
+
+## Importing training set
+```{r training}
+train_data <- read_csv("./trainingData.csv")
+```
+
+## Creating lasso regularization
+
+looping over different lambda values to test it out
+
+```{r pressure, echo=FALSE}
+# Generate the values of p
+lambda_values <- c(0.001, 0.01, 0.1, 0.5)
+
+# Modify datasets
+Xtrain = select(train_data, -c(after_24hr_comments)) %>% data.matrix()
+Xtest = select(val_data, -c(after_24hr_comments)) %>% data.matrix()
+Ytrain = train_data$after_24hr_comments
+Ytest = val_data$after_24hr_comments
+
+# Store the MSE results
+train_MSE <- c()
+test_MSE <- c()
+
+# Loop over n
+for (lam in lambda_values) {
+  
+  print(lam)
+    
+  # Fit the lasso model
+  fit <- glmnet(x = Xtrain, y = Ytrain, alpha = 1, lambda = lam)
+
+  # Make predictions on training data
+  predictions <- predict(fit, newx = Xtrain)
+  # Calculate the test MSE
+  MSE <- mean((predictions - Ytrain)^2)
+  # Store the MSE
+  train_MSE <- c(train_MSE, MSE)
+  
+  # Make predictions
+  predictions <- predict(fit, newx = Xtest)
+  # Calculate the test MSE
+  MSE <- mean((predictions - Ytest)^2)
+  # Store the MSE
+  test_MSE <- c(test_MSE, MSE)
+}
+
+MSE = c(train_MSE, test_MSE)
+Error = factor(c(rep("Train", length(lambda_values)),
+          rep("Test", length(lambda_values))))
+lambda_values = c(lambda_values, lambda_values)
+
+df = data.frame(lambda_values, MSE, Error)
+
+
+# Plot the results
+library(ggplot2)
+ggplot(df, aes(x = lambda_values, y = MSE, color = Error)) +
+  geom_line() +
+  xlab("Lambda value (lam)") +
+  ylab("Mean Squared Error (MSE)") +
+  ggtitle("Lasso Model MSE vs Lambda Value")
+
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
