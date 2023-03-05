@@ -1,0 +1,195 @@
+---
+title: "project_part_3"
+author: "Annie Zhu"
+date: "2023-03-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(readr)
+library(tidyverse)
+library(cvTools)
+library(glmnet)
+```
+
+## Prediction on test set
+
+First we need to import all the data. The giant block of code below generates 6 data frames:
+1) regression_train_data.  
+2) classification_train_data.  
+3) regression_val_data.  
+4) classification_val_data.  
+5) regression_test_data.  
+6) classification_test_data.  
+
+Let's use this block to define functions used in the next block.
+```{r functions}
+## Defining a function for transformations
+transformations <- function(val_data) {
+  ## changing the column names
+  basic_attributes <- c("total_before", "before_24hr", "from_48hr_to_24hr", "first_24hr", "change_between_two_days")
+  prefix <- c("avg", "sd", "min", "max", "med")
+  suffix <- c("comments", "links")
+  for (i in 1:5){
+    for (j in 1:2) {
+      for (k in 1:5) {
+        index = 10 * (i-1) + 5 * (j-1) + k
+        colnames(val_data)[index] <- paste(prefix[k], basic_attributes[i], suffix[j], sep = "_")
+      }
+    }
+  }
+  
+  for (i in 1:5){
+    for (j in 1:2) {
+      index = 50 + i + 5 * (j-1)
+      colnames(val_data)[index] <- paste(basic_attributes[i], suffix[j], sep = "_")
+    }
+  }
+  
+  colnames(val_data)[61] <- "time_length"
+  colnames(val_data)[62] <- "post_length"
+  for (i in 1: 200){
+    index = toString(i)
+    colnames(val_data)[i + 62] <- paste("freq_word_feature_", index, sep = "")
+  }
+  
+  days <- c("mon", "tues", "wed", "thurs", "fri", "sat", "sun")
+  for (i in 1:7) {
+    colnames(val_data)[i + 262] <- paste("basetime", days[i], sep = "_")
+  }
+  for (i in 1:7) {
+    colnames(val_data)[i + 269] <- paste("publication", days[i], sep = "_")
+  }
+  
+  colnames(val_data)[277] <- "parent_pages_count"
+  colnames(val_data)[278] <- "min_parent_pages_comments"
+  colnames(val_data)[279] <- "max_parent_pages_comments"
+  colnames(val_data)[280] <- "avg_parent_pages_comments"
+  colnames(val_data)[281] <- "after_24hr_comments"
+  return(val_data)
+}
+
+## Defining a function for classification data specifically
+classification <- function(data) {
+  classification_data <- data %>%
+    mutate(difference_in_ROG = (after_24hr_comments - before_24hr_comments) - change_between_two_days_comments) %>%
+    mutate(direction_of_growth = ifelse(difference_in_ROG<0, 0, 1)) %>%
+    select(-c(difference_in_ROG, after_24hr_comments, min_before_24hr_comments, 
+              min_before_24hr_links, min_first_24hr_comments, min_first_24hr_links, 
+              min_change_between_two_days_comments, change_between_two_days_comments,change_between_two_days_links))
+  classification_data$direction_of_growth = as.factor(classification_data$direction_of_growth)
+  return(classification_data)
+}
+
+```
+
+Now we import all the data to form train, validation, and test sets for both the regression task and the classification task.
+
+```{r testing}
+# importing data
+data <- read_csv("./trainingData.csv", show_col_types = FALSE)
+regression_train_data <- data
+classification_train_data <- classification(data)
+
+# validation data
+val_data <- read_csv("./BlogFeedback/blogData_test-2012.02.01.00_00.csv",  col_names = FALSE, show_col_types = FALSE)
+numbers <- seq(1, 31)
+numbers <- sprintf("%02d", numbers)
+for (i in 2:29) {
+  path_name <- paste("./BlogFeedback/blogData_test-2012.02.", numbers[i],  ".00_00.csv", sep = "")
+  new_data <- read_csv(path_name, col_names = FALSE, show_col_types = FALSE)
+  val_data <- rbind(val_data, new_data)
+}
+new_data <- read_csv("./BlogFeedback/blogData_test-2012.03.01.00_00.csv", col_names = FALSE, show_col_types = FALSE)
+val_data <- rbind(val_data, new_data)
+val_data <- transformations(val_data)
+regression_val_data <- val_data
+classification_val_data <- classification(val_data)
+
+# testing data
+test_data <- read_csv("./BlogFeedback/blogData_test-2012.03.02.00_00.csv",  col_names = FALSE, show_col_types = FALSE)
+numbers <- seq(1, 31)
+numbers <- sprintf("%02d", numbers)
+for (i in 3:25) {
+  path_name <- paste("./BlogFeedback/blogData_test-2012.03.", numbers[i],  ".00_00.csv", sep = "")
+  new_data <- read_csv(path_name, col_names = FALSE, show_col_types = FALSE)
+  test_data <- rbind(test_data, new_data)
+}
+for (i in 26:31) {
+  path_name <- paste("./BlogFeedback/blogData_test-2012.03.", numbers[i],  ".01_00.csv", sep = "")
+  new_data <- read_csv(path_name, col_names = FALSE, show_col_types = FALSE)
+  test_data <- rbind(test_data, new_data)
+}
+regression_test_data <- transformations(test_data)
+classification_test_data <- classification(continuous_test_data)
+```
+
+Let's do a sanity check via printing.
+```{r checking}
+# printing everything to check if its what we want
+print(regression_train_data)
+print(classification_train_data)
+print(regression_val_data)
+print(classification_val_data)
+print(regression_test_data)
+print(classification_test_data)
+```
+
+Now let's re-generate the best performing model on the classification task.
+```{r train}
+new_model <- glm(direction_of_growth ~ . + time_length*total_before_comments + 
+                   time_length*before_24hr_comments + 
+                   time_length*from_48hr_to_24hr_comments +
+                   time_length*first_24hr_comments +
+                   med_before_24hr_comments*before_24hr_comments + 
+                   med_before_24hr_comments*from_48hr_to_24hr_comments +
+                   med_first_24hr_comments*before_24hr_comments+
+                   med_first_24hr_comments*from_48hr_to_24hr_comments, 
+                 data=classification_train_data, family = "binomial")
+# print(new_model)
+```
+
+
+Lastly, we can do evaluation of the classification task on the test set.
+```{r test}
+# Prediction
+p1<-predict(new_model, classification_test_data, 
+            type = 'response')
+
+# confusion Matrix 
+pre1<-ifelse(p1 > 0.5, 1, 0)
+table<-table(Prediction = pre1, 
+             Actual = classification_test_data$direction_of_growth) 
+print(table)
+
+# getting the metrics
+TN = table[1]
+FP = table[2]
+FN = table[3]
+TP = table[4]
+accuracy = (TP + TN) / nrow(classification_test_data)
+loss = 1 - accuracy
+TPR = TP / (TP + FN)
+FPR = FP / (FP + TN)
+
+print("")
+print(paste("The 0-1 loss is", loss))
+print(paste("The accuracy is", accuracy))
+```
+Our generalization error based on the testing set is 0.107. In comparison, our estimated prediction for the generalized error was 0.105 so we were very close with our estimate!
+
+
+## Inference
+
+We are going to analyze the significance of the results.
+
+```{r significance}
+# use the continuous regression model for this part
+
+```
+
+Benjamini-Hochberg procedure
+
+
+
