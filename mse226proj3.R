@@ -155,7 +155,7 @@ print(p_values)"""
 
 ####################################################################################
 
-### BOOTSTRAPPING
+### BOOTSTRAPPING: from lecture notes
 df = data.frame(X2,Y2) 
 coef.boot = function(X, Y, indices) {
   fm = glmnet(x = X, y = Y, alpha = 1, lambda=bestLambda)
@@ -165,6 +165,47 @@ coef.boot = function(X, Y, indices) {
 } 
 boot.out = boot(df, coef.boot, 50)
 boot.out
+
+
+## BOOTSTRAPPING: from gpt
+
+# Generate some sample data
+set.seed(123)
+n <- 100
+p <- 20
+X <- matrix(rnorm(n*p), ncol=p)
+beta <- rnorm(p, 0, 1)
+y <- X %*% beta + rnorm(n)
+
+# Define a function to fit the glmnet lasso model
+glmnet_fit <- function(data, indices) {
+  x <- data$X[indices, ]
+  y <- data$y[indices]
+  fit <- glmnet(x, y, alpha = 1) # alpha = 1 for lasso
+  return(fit)
+}
+
+# Run a bootstrap with 1000 replications
+boot_results <- boot(data = list(X = X2, y = Y2), statistic = glmnet_fit, R = 50000)
+
+# Calculate the bootstrap standard errors for the coefficients
+boot_se <- apply(boot_results$t, 2, sd)
+
+# Extract the coefficients from the original fit
+coef_original <- coef(fit_original)[-1] # exclude the intercept
+
+# Calculate the bootstrap confidence intervals for the coefficients
+boot_ci <- t(sapply(1:length(coef_original), function(i) quantile(boot_results$t[,i], c(0.025, 0.975))))
+
+# Combine the coefficients, standard errors, and confidence intervals into a data frame
+results_df <- data.frame(Coefficient = names(coef_original),
+                         Estimate = coef_original,
+                         Std_Error = boot_se,
+                         Lower_CI = boot_ci[,1],
+                         Upper_CI = boot_ci[,2])
+
+# Print the results
+print(results_df)
 
 ####################################################################################
 
