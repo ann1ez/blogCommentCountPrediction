@@ -100,114 +100,96 @@ head(traindata)
 
 ######################################################################
 
-# model 2: taking away some covariates bag of 200 words
+# TRAIN set glmnet()
 bestLambda <- 0.5
 X2 = select(traindata, -c(after_24hr_comments)) %>% data.matrix()
 Y2 = traindata$after_24hr_comments
 model2 <- glmnet(x = X2, y = Y2, alpha = 1, lambda=bestLambda)
-#coef(model2)
-model2$dev.ratio #r2=0.3354415 --> test=0.3398696
+summary(model2)
+coef(model2)
+model2$dev.ratio #r2 train=0.3354415 --> test=0.3398696
 
-########################################################################
+# TEST set glmnet()
+bestLambda <- 0.5
+X2_test = select(test_set, -c(after_24hr_comments)) %>% data.matrix()
+Y2_test = test_set$after_24hr_comments
+model2_test <- glmnet(x = X2_test, y = Y2_test, alpha = 1, lambda=bestLambda)
+summary(model2_test)
+model2_test$dev.ratio #r2=0.3354415 --> test=0.3398696
 
-## P-VALUE PER COEFFICIENT FINDING
-coefs <- rep(NA, 281)
-coefs_ones <- rep(NA, 281)
+# TRAIN lm() without 0-covariates
+train_X_covariates <- as.matrix(coef(model2))
+X_rows <- rownames(train_X_covariates)[train_X_covariates != 0]
+X_rows <- X_rows[!X_rows == "(Intercept)"]
+X2 <- X2[,X_rows]
+colnames(X2)
+Y2 = traindata$after_24hr_comments
+model2_new <- lm(Y2 ~ X2, data=traindata)
+summary(model2_new)
+
+# TEST lm() without 0-covariates
+test_X_covariates <- as.matrix(coef(model2_test))
+X_rows <- rownames(test_X_covariates)[test_X_covariates != 0]
+X_rows <- X_rows[!X_rows == "(Intercept)"]
+X2_test <- X2_test[,X_rows]
+colnames(X2_test)
+Y2_test = test_set$after_24hr_comments
+model2_test_new <- lm(Y2_test ~ X2_test, data=test_set)
+summary(model2_test_new)
+
+#######################################
+# TRAIN lm() with all covariates
+model2_new_all <- lm(after_24hr_comments ~ . , data=traindata)
+summary(model2_new_all) #r2=0.3723
+p_vals_model2_new_all <- summary(model2_new_all)$coefficients[,4]  
+sig_p_vals_p_vals_model2_new_all <- rep(NA, length(p_vals_model2_new_all))
+for (i in 1:length(p_vals_model2_new_all)) {
+  if (p_vals_model2_new_all[i] < 0.05) {
+    sig_p_vals_p_vals_model2_new_all[i] <- colnames(traindata)[i]
+  }
+}
+sig_p_vals_p_vals_model2_new_all <- na.omit(sig_p_vals_p_vals_model2_new_all)
+sig_p_vals_p_vals_model2_new_all
+
+######################################################################################################
+covs <- rep(NA, 281)
 for (i in 1:281) {
-  coefs[i] <- coef(model2)[i]
-  if(coef(model2)[i] != 0){
-    coefs_binary[i] <- i
-  }
-  else{
-    coefs_binary[i] <- NA
+  if (coef(model2)[i] != 0){
+    covs[i] <- i
   }
 }
-coefs
-coefs_binary
+covs <- na.omit(covs)
+covs
 
-"""X_lm <- train_data[,-281]
-Y_lm <- train_data[,281]
-traindata_new <- train_data[, c(1,6,7,8,11,22,26,52,53,55,56,58,62,70,78,155,159,172,218,227,281)]
-traindata_new <- train_data[, c(0,5,6,7,10,21,25,51,52,54,55,57,61,69,77,154,158,171,217,226,281)]
-head(traindata_new)
-model2_lm <- lm(after_24hr_comments ~ . , data=traindata_new)
-summary(model2_lm)
-
-# trying to extract p-value per coefficient
-p_values <- summary(model2)$lambda[which(model2$lambda == bestLambda)] * coef_lambda[, "s.e."] * sqrt(model2$df.null)
-coef_lambda <- coef(model2, s = 0.5)
-(coef_lambda)
-p_values <- coef_lambda[, "pvalue"]
-
-# 4.773366e-02 vs -3.226e-01
-### chatgpt "how to get pvalues"
-# Extract the coefficient estimates and their standard errors
-coef_est <- coef(model2, s = bestLambda)
-coef_se <- coef(summary(model2))[,4]
-se_coef <- sqrt(diag(vcov(model2, s = bestLambda)))/sqrt(nrow(X2))
-# Calculate the t-values and p-values
-t_values <- coef_est/coef_se
-p_values <- 2*pt(-abs(t_values), df = model2$df.residual)
-# Print the p-values
-print(p_values)"""
-
-#########################################################################################
-
-####################################################################################
-
-### BOOTSTRAPPING: from lecture notes
-df = data.frame(X2,Y2) 
-coef.boot = function(X, Y, indices) {
-  fm = glmnet(x = X, y = Y, alpha = 1, lambda=bestLambda)
-  #fm = glmnet(data = data[indices,], alpha = 1, lambda=bestLambda)
-  #fm = lm(data = data[indices,], Y ~ 1 + X)
-  return(coef(fm)) 
-} 
-boot.out = boot(df, coef.boot, 50)
-boot.out
-
-
-## BOOTSTRAPPING: from gpt
-
-# Generate some sample data
-set.seed(123)
-n <- 100
-p <- 20
-X <- matrix(rnorm(n*p), ncol=p)
-beta <- rnorm(p, 0, 1)
-y <- X %*% beta + rnorm(n)
-
-# Define a function to fit the glmnet lasso model
-glmnet_fit <- function(data, indices) {
-  x <- data$X[indices, ]
-  y <- data$y[indices]
-  fit <- glmnet(x, y, alpha = 1) # alpha = 1 for lasso
-  return(fit)
+covs_test <- rep(NA, 281)
+for (i in 1:281) {
+  if (coef(model2_test)[i] != 0){
+    covs_test[i] <- i
+  }
 }
+covs_test <- na.omit(covs_test)
+covs_test
 
-# Run a bootstrap with 1000 replications
-boot_results <- boot(data = list(X = X2, y = Y2), statistic = glmnet_fit, R = 50000)
+# find significant values
+"""sig_covs <- rep(NA, 281)
+for (i in 1:281) {
+  if (coef(model2)[i] != 0){
+    sig_covs[i] <- i
+  }
+}
+sig_covs <- na.omit(sig_covs)
+sig_covs
 
-# Calculate the bootstrap standard errors for the coefficients
-boot_se <- apply(boot_results$t, 2, sd)
+sig_covs_test <- rep(NA, 281)
+for (i in 1:281) {
+  if (coef(model2_test)[i] != 0){
+    sig_covs_test[i] <- i
+  }
+}
+sig_covs_test <- na.omit(sig_covs_test)
+sig_covs_test"""
 
-# Extract the coefficients from the original fit
-coef_original <- coef(fit_original)[-1] # exclude the intercept
-
-# Calculate the bootstrap confidence intervals for the coefficients
-boot_ci <- t(sapply(1:length(coef_original), function(i) quantile(boot_results$t[,i], c(0.025, 0.975))))
-
-# Combine the coefficients, standard errors, and confidence intervals into a data frame
-results_df <- data.frame(Coefficient = names(coef_original),
-                         Estimate = coef_original,
-                         Std_Error = boot_se,
-                         Lower_CI = boot_ci[,1],
-                         Upper_CI = boot_ci[,2])
-
-# Print the results
-print(results_df)
-
-####################################################################################
+######################################################################################################
 
 # FUNCTION: VALIDATE WEIGHTING UNDERSTIMATES MORE ERROR
 evaluation_cont_w <- function(model, data){
@@ -225,17 +207,29 @@ evaluation_cont_w <- function(model, data){
   return(rmse)
 }
 
-#model 2 rmse test set:
+# FUNCTION: VALIDATE UNWEIGHTED
+evaluation_cont <- function(model, data){
+  sum_squared <- 0
+  for (i in 1:nrow(data)) {
+    sum_squared <- sum_squared + (data$after_24hr_comments[i] - predict(model, data)[i])^2
+  }
+  rmse <- sqrt(sum_squared / nrow(data))
+  return(rmse)
+}
+
+######################################################################################################
+
+# glmnet(), train set, unweighted
 Xtest2 = select(test_set, -c(after_24hr_comments)) %>% data.matrix()
 Ytest2 = test_set$after_24hr_comments
-predictions3 <- predict(model2, newx = Xtest2)
-MSE3.2 <- mean((predictions3 - Ytest2)^2)
+predictions2 <- predict(model2, newx = Xtest2)
+MSE3.2 <- mean((predictions2 - Ytest2)^2)
 RMSE3.2 <- sqrt(MSE3.2)
 RMSE3.2 # val=24.41738 --> test=24.51266
 RMSE3.2_val <- 24.41738
 (RMSE3.2 - RMSE3.2_val) / RMSE3.2_val # 0.003902221
 
-#model 2 rmse test set weighted:
+# glmnet(), train set, weighted:
 Xtest2 = select(test_set, -c(after_24hr_comments)) %>% data.matrix()
 Ytest2 = test_set$after_24hr_comments
 predictions2w <- predict(model2, newx = Xtest2)
@@ -254,6 +248,65 @@ RMSE3.2w # val=27.77638 --> test=27.85164
 RMSE3.2w_val <- 27.77638
 (RMSE3.2w - RMSE3.2w_val) / RMSE3.2w_val # 0.002709664
 
+# glmnet(), test set, unweighted
+Xtest2 = select(test_set, -c(after_24hr_comments)) %>% data.matrix()
+Ytest2 = test_set$after_24hr_comments
+predictions3 <- predict(model2_test, newx = Xtest2)
+MSE3.2 <- mean((predictions3 - Ytest2)^2)
+RMSE3.2 <- sqrt(MSE3.2)
+RMSE3.2 # val=24.41738 --> test=23.29949
+RMSE3.2_val <- 24.41738
+(RMSE3.2 - RMSE3.2_val) / RMSE3.2_val # -0.04578261
+
+# glmnet(), test set, weighted:
+Xtest2 = select(test_set, -c(after_24hr_comments)) %>% data.matrix()
+Ytest2 = test_set$after_24hr_comments
+predictions2w <- predict(model2_test, newx = Xtest2)
+residuals2w <- Ytest2 - predictions2w
+sum_squared <- 0
+for (i in 1:length(predictions2w)){
+  if(predictions2w[i] > 0){
+    sum_squared <- sum_squared + (1.3 * (predictions2w[i] - Ytest2[i])^2)
+  }
+  else{
+    sum_squared <- sum_squared + (predictions2w[i] - Ytest2[i])^2
+  }
+}
+RMSE3.2w <- sqrt(sum_squared / length(predictions2w))
+RMSE3.2w # val=27.77638 --> test=26.51685
+RMSE3.2w_val <- 27.77638
+(RMSE3.2w - RMSE3.2w_val) / RMSE3.2w_val # -0.04534529
+
+
+# lm(), train, unweighted
+RMSE3.2_new <- evaluation_cont(model2_new, test_set)
+RMSE3.2_new # 32.43471
+
+# lm(), train, weighted:
+RMSE3.2_test_new <- evaluation_cont_w(model2_new, test_set)
+RMSE3.2_test_new # 35.83114
+
+# lm(), test, unweighted
+RMSE3.2_new <- evaluation_cont(model2_test_new, test_set)
+RMSE3.2_new # 22.96092
+
+# lm(), test, weighted:
+RMSE3.2_test_new <- evaluation_cont_w(model2_test_new, test_set)
+RMSE3.2_test_new # 25.56867
+
+##########################
+
+# lm() with ALL covariates (baseline), train set, unweighted
+RMSE_allcovariates <- evaluation_cont(model2_new_all, test_set)
+RMSE_allcovariates # 24.98147
+
+# lm() with ALL covariates (baseline), train set, weighted
+RMSE_allcovariates_W <- evaluation_cont_w(model2_new_all, test_set)
+RMSE_allcovariates_W # 27.82302
+
+
+################################################################################################
+
 # visualize RMSE's
 par(mfrow=c(1,2))   
 barplot(c(RMSE3.2w, RMSE3.2w_val), names.arg = c("Actual","Predicted"),col=rainbow(2), ylim=c(20,30), 
@@ -261,8 +314,3 @@ barplot(c(RMSE3.2w, RMSE3.2w_val), names.arg = c("Actual","Predicted"),col=rainb
 (130% error for underestimates)", xlab="", ylab="Root Mean Squared Error (w)")
 barplot(c(RMSE3.2, RMSE3.2_val), names.arg = c("Actual","Predicted"),col=rainbow(2), ylim=c(20,30),
         main="Unweighted Test Set RMSE", xlab="", ylab="Root Mean Squared Error")
-
-
-
-
-
