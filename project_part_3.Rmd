@@ -8,9 +8,9 @@ output: html_document
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 library(readr)
-library(tidyverse)
-library(cvTools)
+library(boot)
 library(glmnet)
+library(dplyr)
 ```
 
 ## Prediction on test set
@@ -122,7 +122,7 @@ for (i in 26:31) {
   test_data <- rbind(test_data, new_data)
 }
 regression_test_data <- transformations(test_data)
-classification_test_data <- classification(continuous_test_data)
+classification_test_data <- classification(regression_test_data)
 ```
 
 Let's do a sanity check via printing.
@@ -179,17 +179,168 @@ print(paste("The accuracy is", accuracy))
 ```
 Our generalization error based on the testing set is 0.107. In comparison, our estimated prediction for the generalized error was 0.105 so we were very close with our estimate!
 
+## Linear Regression Model 
+Here is the output for running our baseline model.
 
-## Inference
+```{r regression}
+model1 <- lm(after_24hr_comments ~ . , data=regression_train_data)
+summary(model1)
+```
 
-We are going to analyze the significance of the results.
+```{r narrowing}
+r_coeffs <- as.data.frame(summary(model1)$coefficients)
+colnames(r_coeffs)[4] ="pvalue"
+r_sig_coeffs <- r_coeffs %>% filter(pvalue <= 0.05)
+print(r_sig_coeffs)
+```
+
+
+## Benjamini-Hochberg 
+
+We are going to implement the Benjamini-Hochberg procedure.
 
 ```{r significance}
-# use the continuous regression model for this part
+# Function to perform Benjamini-Hochberg procedure on p-values
+bh.adjust <- function(pvals, alpha=0.05) {
+  # Get number of hypotheses tested
+  m <- length(pvals)
+  
+  # Calculate Benjamini-Hochberg critical values
+  k <- 1:m
+  crit <- alpha * k / m
+  
+  # Sort p-values in ascending order
+  sorted_pvals <- sort(pvals)
+  
+  # Find the largest index k such that p[k] <= crit[k]
+  index <- max(which(sorted_pvals <= crit))
+  
+  # Adjust p-values using the largest index
+  adj_pvals <- pvals * m / index
+  
+  # Return adjusted p-values
+  return(adj_pvals)
+}
+
+
+# Calculate p-values for coefficients
+pvals <- summary(model1)$coefficients[,4]
+
+# Perform Benjamini-Hochberg procedure on p-values
+adj_pvals <- bh.adjust(pvals)
+
+# Filter significant coefficients
+coeffs <- as.data.frame(summary(model1)$coefficients)
+sig_coeffs <- cbind(coeffs, adj_pvals) %>% filter(adj_pvals <= 0.05)
+
+
+# Print significant coefficients
+print(sig_coeffs)
+
 
 ```
 
-Benjamini-Hochberg procedure
+
+
+## Bootstrapping 
+Let's bootstrap to estimate the confidence intervals for the regression coefficients. 
+
+```{r bootstrap}
+coef.boot = function(data, indices) {
+  fm = lm(data = data[indices,], after_24hr_comments ~ .)
+  return(coef(fm))
+}
+boot.out = boot(regression_train_data, coef.boot, 1000)
+```
+
+Visualizing and interpreting the output.
+```{r outputboot}
+plot(boot.out)
+
+simulated_data = as.data.frame(boot.out$t)
+print(simulated_data)
+```
+
+```{r visualbootstrap}
+# 
+
+hist(simulated_data$V53, xlab = 'Coefficent values for before_24hr_comments variable', ylab = 'Frequency', main = 'Bootstrapped Coefficient Values')
+hist(simulated_data$V54, xlab = 'Coefficent values for from_48hr_to_24hr_comments variable', ylab = 'Frequency', main = 'Bootstrapped Coefficient Values')
+hist(simulated_data$V62, xlab = 'Coefficent values for time_length variable', ylab = 'Frequency', main = 'Bootstrapped Coefficient Values')
+```
+
+```{r confidenceinterval}
+compute_confidence_interval <- function(vec, name) {
+  # Set values
+  est <- mean(vec)  # Point estimate
+  se <- sd(vec)   # Standard error
+  alpha <- 0.05  # Significance level
+  
+  # Compute critical value
+  cv <- qt(1 - alpha/2, df = Inf)
+  
+  # Compute confidence interval
+  ci_lower <- est - cv * se
+  ci_upper <- est + cv * se
+  
+  # Print results
+  cat("Confidence interval for", name, "is : [", ci_lower, ", ", ci_upper, "]\n")
+  
+}
+
+r_confidence_interval <- function(name) {
+  # Set values
+  est <- model1$coefficients[name]  # Point estimate
+  se <- sqrt(diag(vcov(model1)))[name]   # Standard error
+  alpha <- 0.05  # Significance level
+  
+  # Compute critical value
+  cv <- qt(1 - alpha/2, df = Inf)
+  
+  # Compute confidence interval
+  ci_lower <- est - cv * se
+  ci_upper <- est + cv * se
+  
+  # Print results
+  cat("Confidence interval for", name, "is : [", ci_lower, ", ", ci_upper, "]\n")
+}
+
+print("Bootstrapped Confidence Intervals")
+compute_confidence_interval(simulated_data$V53, "before_24hr_comments")
+compute_confidence_interval(simulated_data$V54, "from_48hr_to_24hr_comments")
+compute_confidence_interval(simulated_data$V62, "time_length")
+
+print("R Regression Confidence Intervals")
+r_confidence_interval("before_24hr_comments")
+r_confidence_interval("from_48hr_to_24hr_comments")
+r_confidence_interval("time_length")
+
+```
+Summary statistics on this section:
+```{r summarybootstrap}
+bootstrapped_SE <- apply(simulated_data,2,sd)
+standard_r_SE <- sqrt(diag(vcov(model1)))
+difference_in_SE <- standard_r_SE - bootstrapped_SE
+hist(difference_in_SE, xlab = 'Difference in Standard Error Estimate', ylab = 'Frequency', main = 'Comparing SE for Bootstrap and Standard R')
+
+bootstrapped_SE['V12']
+standard_r_SE['avg_before_24hr_comments']
+difference_in_SE['avg_before_24hr_comments']
+
+bootstrapped_SE['V32']
+standard_r_SE['avg_first_24hr_comments']
+difference_in_SE['avg_first_24hr_comments']
+
+
+```
+
+Here is some code to export the bootstrapped coefficient values.
+
+```{r export}
+# export the data so that I don't have to rerun the 30min+ long bootstrap function everytime
+write.csv(simulated_data, "./bootstrap.csv", row.names=FALSE)
+
+```
 
 
 
