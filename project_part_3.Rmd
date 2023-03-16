@@ -187,13 +187,62 @@ model1 <- lm(after_24hr_comments ~ . , data=regression_train_data)
 summary(model1)
 ```
 
+## Significant Coefficients
+
 ```{r narrowing}
+# these are our significant coefficients 
 r_coeffs <- as.data.frame(summary(model1)$coefficients)
 colnames(r_coeffs)[4] ="pvalue"
-r_sig_coeffs <- r_coeffs %>% filter(pvalue <= 0.05)
-print(r_sig_coeffs)
+colnames(r_coeffs)[2] ="stderror"
+r_sig_coeffs <- r_coeffs %>% filter(pvalue < 0.001)
+arrange(r_sig_coeffs, pvalue)
+
+# print(row.names(r_sig_coeffs))
+x = ""
+for (i in 1:nrow(r_sig_coeffs)){
+  x = paste(x, paste(row.names(r_sig_coeffs)[i], ", ", sep = ""), sep = "")
+}
+# print(x)
 ```
 
+## Collinearity 
+```{r standarderror}
+print(median(r_coeffs$stderror))
+bag_of_words = r_coeffs %>% slice(57:233)
+print(median(bag_of_words$stderror))
+
+arrange(r_coeffs, desc(stderror))
+hist(r_coeffs$stderror, xlab = 'Standard Error for Coefficients', ylab = 'Frequency', main = 'Standard Error of Coefficient Values', breaks = 20)
+
+```
+
+## Sig Coefficients for Test Data
+
+```{r withtest}
+model2 <- lm(after_24hr_comments ~ . , data=regression_test_data)
+# these are our significant coefficients 
+r_coeffs_test <- as.data.frame(summary(model2)$coefficients)
+colnames(r_coeffs_test)[4] ="pvalue"
+colnames(r_coeffs_test)[2] ="stderror"
+r_sig_coeffs_test <- r_coeffs_test %>% filter(pvalue < 0.001)
+arrange(r_sig_coeffs_test, pvalue)
+
+# print(row.names(r_sig_coeffs))
+x = ""
+for (i in 1:nrow(r_sig_coeffs_test)){
+  x = paste(x, paste(row.names(r_sig_coeffs_test)[i], ", ", sep = ""), sep = "")
+}
+print(x)
+
+
+```
+
+## Bonferroni Correction
+```{r bonferroni}
+bon_sig_coeffs <- r_coeffs %>% filter(pvalue < 0.00000355871)
+print(bon_sig_coeffs)
+
+```
 
 ## Benjamini-Hochberg 
 
@@ -201,7 +250,7 @@ We are going to implement the Benjamini-Hochberg procedure.
 
 ```{r significance}
 # Function to perform Benjamini-Hochberg procedure on p-values
-bh.adjust <- function(pvals, alpha=0.05) {
+bh.adjust <- function(pvals, alpha=0.001) {
   # Get number of hypotheses tested
   m <- length(pvals)
   
@@ -231,12 +280,16 @@ adj_pvals <- bh.adjust(pvals)
 
 # Filter significant coefficients
 coeffs <- as.data.frame(summary(model1)$coefficients)
-sig_coeffs <- cbind(coeffs, adj_pvals) %>% filter(adj_pvals <= 0.05)
+sig_coeffs <- cbind(coeffs, adj_pvals) %>% filter(adj_pvals <= 0.001)
 
 
 # Print significant coefficients
 print(sig_coeffs)
-
+x = ""
+for (i in 1:nrow(sig_coeffs)){
+  x = paste(x, paste(row.names(sig_coeffs)[i], ", ", sep = ""), sep = "")
+}
+print(x)
 
 ```
 
@@ -261,6 +314,7 @@ simulated_data = as.data.frame(boot.out$t)
 print(simulated_data)
 ```
 
+
 ```{r visualbootstrap}
 # 
 
@@ -269,10 +323,11 @@ hist(simulated_data$V54, xlab = 'Coefficent values for from_48hr_to_24hr_comment
 hist(simulated_data$V62, xlab = 'Coefficent values for time_length variable', ylab = 'Frequency', main = 'Bootstrapped Coefficient Values')
 ```
 
+
 ```{r confidenceinterval}
 compute_confidence_interval <- function(vec, name) {
   # Set values
-  est <- mean(vec)  # Point estimate
+  est <- model1$coefficients[name]  # Point estimate
   se <- sd(vec)   # Standard error
   alpha <- 0.05  # Significance level
   
@@ -316,12 +371,14 @@ r_confidence_interval("from_48hr_to_24hr_comments")
 r_confidence_interval("time_length")
 
 ```
+
 Summary statistics on this section:
+
 ```{r summarybootstrap}
 bootstrapped_SE <- apply(simulated_data,2,sd)
 standard_r_SE <- sqrt(diag(vcov(model1)))
-difference_in_SE <- standard_r_SE - bootstrapped_SE
-hist(difference_in_SE, xlab = 'Difference in Standard Error Estimate', ylab = 'Frequency', main = 'Comparing SE for Bootstrap and Standard R')
+difference_in_SE <- (bootstrapped_SE - standard_r_SE) / standard_r_SE
+hist(difference_in_SE, xlab = 'Proportional difference in SE Estimate', ylab = 'Frequency', main = 'Comparing SE for Bootstrap and Standard R', breaks = 14)
 
 bootstrapped_SE['V12']
 standard_r_SE['avg_before_24hr_comments']
@@ -343,4 +400,49 @@ write.csv(simulated_data, "./bootstrap.csv", row.names=FALSE)
 ```
 
 
+## Subset of Covariates
 
+Here we look at the sig coeff for just a subset of covariates used to train the model.
+
+```{r subset}
+Xtrain = select(regression_train_data, -c(after_24hr_comments)) %>% data.matrix()
+Ytrain = regression_train_data$after_24hr_comments
+model_lasso <- glmnet(x = Xtrain, y = Ytrain, alpha = 1, lambda = 0.5)
+
+# TRAIN lm() without 0-covariates
+train_X_covariates <- as.matrix(coef(model_lasso))
+X_rows <- rownames(train_X_covariates)[train_X_covariates != 0]
+X_rows <- X_rows[!X_rows == "(Intercept)"]
+Xtrain <- Xtrain[,X_rows]
+colnames(Xtrain)
+model_lasso_new <- lm(Ytrain ~ Xtrain, data=regression_train_data)
+summary(model_lasso_new)
+
+```
+
+## Significant Coefficients for Lasso-ed Model
+
+```{r sigcoeff_lasso}
+
+# these are our significant coefficients 
+r_coeffs_lasso <- as.data.frame(summary(model_lasso_new)$coefficients)
+colnames(r_coeffs_lasso)[4] ="pvalue"
+colnames(r_coeffs_lasso)[2] ="stderror"
+r_sig_coeffs_lasso <- r_coeffs_lasso %>% filter(pvalue < 0.001)
+arrange(r_sig_coeffs_lasso, pvalue)
+
+# print(row.names(r_sig_coeffs))
+x = ""
+for (i in 1:nrow(r_sig_coeffs_lasso)){
+  x = paste(x, paste(row.names(r_sig_coeffs_lasso)[i], ", ", sep = ""), sep = "")
+}
+print(x)
+```
+
+
+
+
+
+The End
+
+~~~
