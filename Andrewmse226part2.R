@@ -2,10 +2,11 @@
 
 # import libraries
 set.seed(2025)
-#install.packages("cvTools")
+install.packages("cvTools")
 library(cvTools)
 install.packages("glmnet", repos = "https://cran.us.r-project.org")
 library(glmnet)
+library(dplyr)
 
 
 # import data
@@ -151,7 +152,6 @@ traindata[is.na(traindata) | traindata == "Inf"] <- NA  # Replace NaN & Inf with
 
 
 
-
 ## creating continuous models
 
 #model 1: everything standard lm
@@ -160,62 +160,62 @@ summary(model1) #r2=0.3489
 # In my first model, I simply create a linear model of all covariates given equally as a baseline. I deleted collinear columns created from new engineered columns I created to mitigate collinearity in the data.
 
 #model 2: taking away some covariates bag of 200 words
-dropCols = c(63:276)
-model2 <- lm(after_24hr_comments ~ . , data=traindata[-dropCols])
-summary(model2) #r2=0.3408 | 0.3404
-# In my second model, I decided to remove columns that represented the 200 bag of words featured for 200 most frequent words of the blog post text to see if that data would cause overfitting on the specific training sets, causing increased prediction error on the test set or validation set.
 
+bestLambda <- 0.5
+Xtrain2 = select(traindata, -c(after_24hr_comments)) %>% data.matrix()
+Ytrain2 = traindata$after_24hr_comments
+model2 <- glmnet(x = Xtrain2, y = Ytrain2, alpha = 1, lambda = bestLambda)
+model2$dev.ratio #r2=0.3363457
 
-#model 4: higher order terms on pre-24hr covariate measurements, degree=3
+#model 3: higher order terms on pre-24hr covariate measurements, degree=3
 dropCols = c(11,12,13,14,15,16,17,18,19,20,52,57)
-model4 <- lm(after_24hr_comments ~ I(avg_before_24hr_comments)^3 + 
+model3 <- lm(after_24hr_comments ~ I(avg_before_24hr_comments)^3 + 
                I(sd_before_24hr_comments)^3 + I(min_before_24hr_comments)^3 + 
                I(max_before_24hr_comments)^3 + I(med_before_24hr_comments)^3 + 
                I(avg_before_24hr_links)^3 + I(sd_before_24hr_links)^3 + 
                I(min_before_24hr_links)^3 + I(max_before_24hr_links)^3 + 
                I(med_before_24hr_links)^3 + I(before_24hr_comments)^3 + 
                I(before_24hr_links)^3 + ., data=traindata)
-summary(model4) #r2=0.3489
+summary(model3) #r2=0.3489
 
 
-#model 5: only terms on pre-24hr covariate measurements
-model5 <- lm(traindata$after_24hr_comments ~ traindata$avg_before_24hr_comments + 
-               traindata$sd_before_24hr_comments + traindata$min_before_24hr_comments + 
-               traindata$max_before_24hr_comments + traindata$med_before_24hr_comments + 
-               traindata$avg_before_24hr_links + traindata$sd_before_24hr_links + 
-               traindata$min_before_24hr_links + traindata$max_before_24hr_links + 
-               traindata$med_before_24hr_links + traindata$before_24hr_comments + 
-               traindata$before_24hr_links, data=traindata)
-summary(model5) #r2=0.2993
-
-#model 6: log only terms on pre-24hr covariate measurements
-traindata_temp6 = traindata + 1e-09
-model6 <- lm(data=traindata_temp6, log(after_24hr_comments) ~ log(avg_before_24hr_comments) + 
+#model 4: log transformation terms on pre-24hr covariate measurements
+traindata_temp4 = traindata + 1e-09
+model4 <- lm(data=traindata_temp4, log(after_24hr_comments) ~ log(avg_before_24hr_comments) + 
                log(sd_before_24hr_comments) + log(min_before_24hr_comments) + 
                log(max_before_24hr_comments) + log(med_before_24hr_comments) + 
                log(avg_before_24hr_links) + log(sd_before_24hr_links) + 
                log(min_before_24hr_links) + log(max_before_24hr_links) + 
                log(med_before_24hr_links) + log(before_24hr_comments) + 
                log(before_24hr_links))
-summary(model6) #r2=0.3544
+summary(model4) #r2=0.3544
 
-#model 7: using centering
-traindata_temp7 <- traindata
+"#model 5: using centering
+traindata_temp5 <- traindata
 for (i in 1:280){
-  traindata_temp7[,i] <- traindata_temp7[,i] - mean(traindata_temp7[,i])
+  traindata_temp5[,i] <- traindata_temp5[,i] - mean(traindata_temp5[,i])
 }
-head(traindata_temp7)
-model7 <- lm(after_24hr_comments ~ . , data=traindata_temp7)
-summary(model7) #r2=0.3489, intercept=6.493
+model5 <- lm(after_24hr_comments ~ . , data=traindata_temp5)
+summary(model5) #r2=0.3489, intercept=6.493"
 
-#model 8: model1 + interaction terms: parent_pages_count-max_parent_pages_comments and basetime_Sun-before_24hr_links
-model8 <- lm(after_24hr_comments ~ . + parent_pages_count:max_parent_pages_comments +
+# model 5: interaction terms:
+model5 <- lm(after_24hr_comments ~ . + 
+               parent_pages_count:max_parent_pages_comments +
+               parent_pages_count:avg_parent_pages_comments +
                basetime_sun:before_24hr_links + 
-               , data=traindata)
-summary(model8) #r2=0.3489
+               time_length:total_before_comments +
+               time_length:before_24hr_comments +
+               time_length:from_48hr_to_24hr_comments +
+               time_length:first_24hr_comments +
+               med_before_24hr_comments:before_24hr_comments +
+               med_before_24hr_comments:from_48hr_to_24hr_comments +
+               max_before_24hr_comments:before_24hr_comments +
+               max_before_24hr_comments:from_48hr_to_24hr_comments +
+               publication_sun:basetime_sun +
+               avg_total_before_comments:avg_total_before_links, data=traindata)
+summary(model5) #r2=0.3942
 
-
-#model 9: combination of model6 and model1 (all columns but add log of 24hr-pre-basetime)
+"#FAKE model 9: combination of modelX and modelY (all columns but add log of 24hr-pre-basetime)
 dropCols = c(63:262)
 traindata_temp9 = traindata + 1e-09
 model9 <- lm(log(after_24hr_comments) ~ . + log(avg_before_24hr_comments) + 
@@ -225,14 +225,68 @@ model9 <- lm(log(after_24hr_comments) ~ . + log(avg_before_24hr_comments) +
                log(min_before_24hr_links) + log(max_before_24hr_links) + 
                log(med_before_24hr_links) + log(before_24hr_comments) + 
                log(before_24hr_links), data=traindata_temp9[-dropCols])
-summary(model9) #r2=0.4135
+summary(model9) #r2=0.4135"
 
 
-# LASSO model 10: lasso of transfornations n siht
-dropCols = c(63:262)
-traindata_temp10 = traindata + 1e-09
-model10 <- lm()
-summary(model10) #r2=
+# LASSO model 6: lasso of transfornations n siht
+bestLambda <- 2.8
+traindata_temp7 <- traindata
+traindata_temp7$avg_before_24hr_comments_3 = (traindata_temp7$avg_before_24hr_comments)^3
+traindata_temp7$sd_before_24hr_comments_3 = (traindata_temp7$sd_before_24hr_comments)^3
+traindata_temp7$min_before_24hr_comments_3 = (traindata_temp7$min_before_24hr_comments)^3
+traindata_temp7$max_before_24hr_comments_3 = (traindata_temp7$max_before_24hr_comments)^3
+traindata_temp7$med_before_24hr_comments_3 = (traindata_temp7$med_before_24hr_comments)^3
+traindata_temp7$avg_before_24hr_links_3 = (traindata_temp7$avg_before_24hr_links)^3
+traindata_temp7$sd_before_24hr_links_3 = (traindata_temp7$sd_before_24hr_links)^3
+traindata_temp7$min_before_24hr_links_3 = (traindata_temp7$max_before_24hr_links)^3
+traindata_temp7$med_before_24hr_links_3 = (traindata_temp7$med_before_24hr_links)^3
+traindata_temp7$before_24hr_comments_3 = (traindata_temp7$before_24hr_comments)^3
+traindata_temp7$before_24hr_links_3 = (traindata_temp7$before_24hr_links)^3
+traindata_temp7$parent_pages_countmax_parent_pages_comments = traindata_temp7$parent_pages_count*traindata_temp7$max_parent_pages_comments
+traindata_temp7$parent_pages_countavg_parent_pages_comments = traindata_temp7$parent_pages_count*traindata_temp7$avg_parent_pages_comments
+traindata_temp7$basetime_sunbefore_24hr_links = traindata_temp7$basetime_sun*traindata_temp7$before_24hr_links
+traindata_temp7$time_lengthtotal_before_comments = traindata_temp7$time_length*traindata_temp7$total_before_comments
+traindata_temp7$time_lengthbefore_24hr_comments = traindata_temp7$time_length*traindata_temp7$before_24hr_comments
+traindata_temp7$time_lengthfrom_48hr_to_24hr_comments = traindata_temp7$time_length*traindata_temp7$from_48hr_to_24hr_comments
+traindata_temp7$time_lengthfirst_24hr_comments = traindata_temp7$time_length*traindata_temp7$first_24hr_comments
+traindata_temp7$med_before_24hr_commentsbefore_24hr_comments = traindata_temp7$med_before_24hr_comments*traindata_temp7$before_24hr_comments
+traindata_temp7$med_before_24hr_commentsfrom_48hr_to_24hr_comments = traindata_temp7$med_before_24hr_comments*traindata_temp7$from_48hr_to_24hr_comments
+traindata_temp7$max_before_24hr_commentsbefore_24hr_comments = traindata_temp7$max_before_24hr_comments*traindata_temp7$before_24hr_comments
+traindata_temp7$max_before_24hr_commentsfrom_48hr_to_24hr_comments = traindata_temp7$max_before_24hr_comments*traindata_temp7$from_48hr_to_24hr_comments
+traindata_temp7$publication_sunbasetime_sun = traindata_temp7$publication_sun*traindata_temp7$basetime_sun
+traindata_temp7$avg_total_before_commentsavg_total_before_links = traindata_temp7$avg_total_before_comments*traindata_temp7$avg_total_before_links
+
+validatedata_test_temp7 <- validatedata_test
+validatedata_test_temp7$avg_before_24hr_comments_3 = (validatedata_test_temp7$avg_before_24hr_comments)^3
+validatedata_test_temp7$sd_before_24hr_comments_3 = (validatedata_test_temp7$sd_before_24hr_comments)^3
+validatedata_test_temp7$min_before_24hr_comments_3 = (validatedata_test_temp7$min_before_24hr_comments)^3
+validatedata_test_temp7$max_before_24hr_comments_3 = (validatedata_test_temp7$max_before_24hr_comments)^3
+validatedata_test_temp7$med_before_24hr_comments_3 = (validatedata_test_temp7$med_before_24hr_comments)^3
+validatedata_test_temp7$avg_before_24hr_links_3 = (validatedata_test_temp7$avg_before_24hr_links)^3
+validatedata_test_temp7$sd_before_24hr_links_3 = (validatedata_test_temp7$sd_before_24hr_links)^3
+validatedata_test_temp7$min_before_24hr_links_3 = (validatedata_test_temp7$max_before_24hr_links)^3
+validatedata_test_temp7$med_before_24hr_links_3 = (validatedata_test_temp7$med_before_24hr_links)^3
+validatedata_test_temp7$before_24hr_comments_3 = (validatedata_test_temp7$before_24hr_comments)^3
+validatedata_test_temp7$before_24hr_links_3 = (validatedata_test_temp7$before_24hr_links)^3
+validatedata_test_temp7$parent_pages_countmax_parent_pages_comments = validatedata_test_temp7$parent_pages_count*validatedata_test_temp7$max_parent_pages_comments
+validatedata_test_temp7$parent_pages_countavg_parent_pages_comments = validatedata_test_temp7$parent_pages_count*validatedata_test_temp7$avg_parent_pages_comments
+validatedata_test_temp7$basetime_sunbefore_24hr_links = validatedata_test_temp7$basetime_sun*validatedata_test_temp7$before_24hr_links
+validatedata_test_temp7$time_lengthtotal_before_comments = validatedata_test_temp7$time_length*validatedata_test_temp7$total_before_comments
+validatedata_test_temp7$time_lengthbefore_24hr_comments = validatedata_test_temp7$time_length*validatedata_test_temp7$before_24hr_comments
+validatedata_test_temp7$time_lengthfrom_48hr_to_24hr_comments = validatedata_test_temp7$time_length*validatedata_test_temp7$from_48hr_to_24hr_comments
+validatedata_test_temp7$time_lengthfirst_24hr_comments = validatedata_test_temp7$time_length*validatedata_test_temp7$first_24hr_comments
+validatedata_test_temp7$med_before_24hr_commentsbefore_24hr_comments = validatedata_test_temp7$med_before_24hr_comments*validatedata_test_temp7$before_24hr_comments
+validatedata_test_temp7$med_before_24hr_commentsfrom_48hr_to_24hr_comments = validatedata_test_temp7$med_before_24hr_comments*validatedata_test_temp7$from_48hr_to_24hr_comments
+validatedata_test_temp7$max_before_24hr_commentsbefore_24hr_comments = validatedata_test_temp7$max_before_24hr_comments*validatedata_test_temp7$before_24hr_comments
+validatedata_test_temp7$max_before_24hr_commentsfrom_48hr_to_24hr_comments = validatedata_test_temp7$max_before_24hr_comments*validatedata_test_temp7$from_48hr_to_24hr_comments
+validatedata_test_temp7$publication_sunbasetime_sun = validatedata_test_temp7$publication_sun*validatedata_test_temp7$basetime_sun
+validatedata_test_temp7$avg_total_before_commentsavg_total_before_links = validatedata_test_temp7$avg_total_before_comments*validatedata_test_temp7$avg_total_before_links
+
+
+Xtrain = select(traindata_temp7, -c(after_24hr_comments)) %>% data.matrix()
+Ytrain = traindata_temp7$after_24hr_comments
+model6 <- glmnet(x = Xtrain, y = Ytrain, alpha = 1, lambda = bestLambda)
+model6$dev.ratio #r2=0.3352306
 
 
 ################# TESTING MODELS NORMAL WEIGHTING #################### ##########
@@ -250,141 +304,39 @@ evaluation_cont <- function(model, data){
   return(rmse)
 }
 
-#model 1 k-fold CV:
-RMSE1.1 <- cvFit(model1, traindata, y=traindata$after_24hr_comments, K=5, seed=2025)
-RMSE1.1 # 31.01574
-
-#model 2 k-fold CV:
-RMSE1.2 <- cvFit(model2, traindata, y=traindata$after_24hr_comments, K=5, seed=2025)
-RMSE1.2 # 31.01574
-
-#model 3 k-fold CV: ERROR BC LASSO NOT WORKING
-RMSE1.3 <- cvFit(model3, traindata, y=traindata$after_24hr_comments, K=5, seed=2025)
-RMSE1.3 # 
-
-#model 4 k-fold CV: ERROR BC DIFFERNT LENGTHS VARIABLES AVG_TOTAL_BEFORE_COMMENTS
-RMSE1.4 <- cvFit(model4, traindata, y=traindata$after_24hr_comments, K=5, seed=2025)
-RMSE1.4 # 
-
-#model 5 k-fold CV:
-RMSE1.5 <- cvFit(model5, traindata, y=traindata$after_24hr_comments, K=5, seed=2025)
-RMSE1.5 # 46.35825
-
-#model 6 k-fold CV:
-RMSE1.6 <- cvFit(model5, traindata, y=traindata$after_24hr_comments, K=5, seed=2025)
-RMSE1.6 # 46.35825
-
-#model 7 k-fold CV:
-RMSE1.7 <- cvFit(model5, traindata, y=traindata$after_24hr_comments, K=5, seed=2025)
-RMSE1.7 # 46.35825
-
-#model 8 k-fold CV:
-RMSE1.8 <- cvFit(model5, traindata, y=traindata$after_24hr_comments, K=5, seed=2025)
-RMSE1.8 # 46.35825
-
-#model 9 k-fold CV:
-RMSE1.9 <- cvFit(model5, traindata, y=traindata$after_24hr_comments, K=5, seed=2025)
-RMSE1. # 46.35825
-
-#install.packages("caret", dependencies = c("Depends", "Suggests"))
-library(caret)
-
-#model 1 k-fold LOOCV
-ctrl <- trainControl(method = "LOOCV")
-model4.1 <- train(traindata$after_24hr_comments ~ ., data=traindata[-dropCols], method = "lm", trControl = ctrl)
-print(model4.1)
-RMSE4.1 # 31.81966
-
-#model 2 k-fold LOOCV:
-RMSE4.2 <- cvFit(model2, traindata, y=traindata$after_24hr_comments, K=5, seed=2025)
-RMSE4.2 # 
-
-#model 3 k-fold LOOCV:
-RMSE4.3 <- cvFit(model3, traindata, y=traindata$after_24hr_comments, K=5, seed=2025)
-RMSE4.3 # 
-
-#model 4 k-fold LOOCV:
-RMSE4.4 <- cvFit(model4, traindata, y=traindata$after_24hr_comments, K=5, seed=2025)
-RMSE4.4 # 
-
-#model 5 k-fold LOOCV:
-RMSE4.5 <- cvFit(model5, traindata, y=traindata$after_24hr_comments, K=5, seed=2025)
-RMSE4.5 # 
-
-#model 1 validation-train set:
-RMSE2.1 <- evaluation_cont(model1, validatedata_train)
-RMSE2.1 # 28.26032
-
-#model 2 validation-train set:
-RMSE2.2 <- evaluation_cont(model2, validatedata_train)
-RMSE2.2 # 19.77577
-
-#model 3 validation-train set:
-RMSE2.3 <- evaluation_cont(model3, validatedata_train)
-RMSE2.3 # TODO
-
-#model 4 validation-train set:
-RMSE2.4 <- evaluation_cont(model4, validatedata_train)
-RMSE2.4 # 19.77577 (sus)
-
-#model 5 validation-train set:
-RMSE2.5 <- evaluation_cont(model5, validatedata_train)
-RMSE2.5 # 29.71252
-
-#model 6 validation-train set:
-RMSE2.6 <- evaluation_cont(model6, validatedata_train)
-RMSE2.6 # NaN
-
-#model 7 validation-train set:
-RMSE2.7 <- evaluation_cont(model7, validatedata_train)
-RMSE2.7 # 19.85921
-
-#model 8 validation-train set:
-RMSE2.8 <- evaluation_cont(model8, validatedata_train)
-RMSE2.8 # 19.77537
-
-#model 9 validation-train set:
-RMSE2.9 <- evaluation_cont(model9, validatedata_train)
-RMSE2.9 # NaN???
-
-## IMPORTANTEST:
 #model 1 validation-test set:
 RMSE3.1 <- evaluation_cont(model1, validatedata_test)
 RMSE3.1 # 24.93532
 
 #model 2 validation-test set:
-RMSE3.2 <- evaluation_cont(model2, validatedata_test)
-RMSE3.2 # 24.75317
+Xtest2 = select(validatedata_test, -c(after_24hr_comments)) %>% data.matrix()
+Ytest2 = validatedata_test$after_24hr_comments
+predictions3 <- predict(model2, newx = Xtest2)
+MSE3.2 <- mean((predictions3 - Ytest2)^2)
+RMSE3.2 <- sqrt(MSE3.2)
+RMSE3.2 # 24.41738
 
 #model 3 validation-test set:
-#RMSE3.3 <- evaluation_cont(model3, validatedata_test)
-#RMSE3.3 # TODO
+RMSE3.3 <- evaluation_cont(model3, validatedata_test)
+RMSE3.3 # 24.93532
 
 #model 4 validation-test set:
-RMSE3.4 <- evaluation_cont(model4, validatedata_test)
-RMSE3.4 # 24.93532
+validatedata_test_temp4 <- validatedata_test + 1e-09
+RMSE3.4 <- evaluation_cont(model4, validatedata_test_temp4)
+RMSE3.4 # 36.98585
 
 #model 5 validation-test set:
 RMSE3.5 <- evaluation_cont(model5, validatedata_test)
-RMSE3.5 # 34.2279
+RMSE3.5 # 34.30146
 
 #model 6 validation-test set:
-validatedata_test_temp6 <- validatedata_test + 1e-09
-RMSE3.6 <- evaluation_cont(model6, validatedata_test_temp6)
-RMSE3.6 # 36.98585
+Xtest7 = select(validatedata_test_temp7, -c(after_24hr_comments)) %>% data.matrix()
+Ytest7 = validatedata_test_temp7$after_24hr_comments
+predictions7 <- predict(model7, newx = Xtest7)
+MSE3.7 <- mean((predictions7 - Ytest7)^2)
+RMSE3.6 <- sqrt(MSE3.7)
+RMSE3.6 # 25.08764
 
-#model 7 validation-test set:
-RMSE3.7 <- evaluation_cont(model7, validatedata_test)
-RMSE3.7 # 26.3101
-
-#model 8 validation-test set:
-RMSE3.8 <- evaluation_cont(model8, validatedata_test)
-RMSE3.8 # 24.9193
-
-#model 9 validation-test set:
-validatedata_test_temp9 <- validatedata_test + 1e-09
-RMSE3.9 <- evaluation_cont(model9, validatedata_test_temp9)
-RMSE3.9 # 36.33881
 
 ### VALIDATION BUT WITH PENALTY ON UNDERESTIMATION ###
 
@@ -404,69 +356,61 @@ evaluation_cont_w <- function(model, data){
   return(rmse)
 }
 
-#model 1 validation-train set weighted:
-RMSE2.1w <- evaluation_cont_w(model1, validatedata_train)
-RMSE2.1w # 28.26032
-
-#model 2 validation-train set weighted:
-RMSE2.2w <- evaluation_cont_w(model2, validatedata_train)
-RMSE2.2w # 
-
-#model 3 validation-train set weighted:
-RMSE2.3w <- evaluation_cont_w(model3, validatedata_train)
-RMSE2.3w # 
-
-#model 4 validation-train set weighted:
-RMSE2.4w <- evaluation_cont_w(model4, validatedata_train)
-RMSE2.4w # 
-
-#model 5 validation-train set weighted:
-RMSE2.5w <- evaluation_cont_w(model5, validatedata_train)
-RMSE2.5w # 
-
-
-## IMPORTANTEST:
 #model 1 validation-test set weighted:
 RMSE3.1w <- evaluation_cont_w(model1, validatedata_test)
 RMSE3.1w # 27.83455
 
 #model 2 validation-test set weighted:
-RMSE3.2w <- evaluation_cont_w(model2, validatedata_test)
-RMSE3.2w # 27.65683
+Xtest2 = select(validatedata_test, -c(after_24hr_comments)) %>% data.matrix()
+Ytest2 = validatedata_test$after_24hr_comments
+predictions2w <- predict(model2, newx = Xtest2)
+residuals2w <- Ytest2 - predictions2w
+sum_squared <- 0
+for (i in 1:length(predictions2w)){
+  if(predictions2w[i] > 0){
+    sum_squared <- sum_squared + (1.3 * (predictions2w[i] - Ytest2[i])^2)
+  }
+  else{
+    sum_squared <- sum_squared + (predictions2w[i] - Ytest2[i])^2
+  }
+}
+RMSE3.2w <- sqrt(sum_squared / length(predictions2w))
+RMSE3.2w # 27.77638
 
 #model 3 validation-test set weighted:
-#RMSE3.3w <- evaluation_cont_w(model3, validatedata_test)
-#RMSE3.3w # TODO
+RMSE3.3w <- evaluation_cont_w(model3, validatedata_test)
+RMSE3.3w # 27.83456
 
 #model 4 validation-test set weighted:
-RMSE3.4w <- evaluation_cont_w(model4, validatedata_test)
-RMSE3.4w # 27.83456
+validatedata_test_temp4w <- validatedata_test + 1e-09
+RMSE3.4w <- evaluation_cont_w(model4, validatedata_test_temp4w)
+RMSE3.4w # 42.17036
 
 #model 5 validation-test set weighted:
 RMSE3.5w <- evaluation_cont_w(model5, validatedata_test)
-RMSE3.5w # 38.28275
+RMSE3.5w # 36.57172
 
-#model 6 validation-test set weighted:
-validatedata_test_temp6w <- validatedata_test + 1e-09
-RMSE3.6w <- evaluation_cont_w(model6, validatedata_test_temp6w)
-RMSE3.6w # 42.17036
-
-#model 7 validation-test set weighted:
-RMSE3.7w <- evaluation_cont_w(model7, validatedata_test)
-RMSE3.7w # 27.78359
-
-#model 8 validation-test set weighted:
-RMSE3.8w <- evaluation_cont_w(model8, validatedata_test)
-RMSE3.8w # 27.81803
-
-#model 9 validation-test set weighted:
-validatedata_test_temp9w <- validatedata_test + 1e-09
-RMSE3.9w <- evaluation_cont_w(model9, validatedata_test_temp9w)
-RMSE3.9w # 41.43257
+#model 6 validation-test set:
+Xtest7 = select(validatedata_test_temp7, -c(after_24hr_comments)) %>% data.matrix()
+Ytest7 = validatedata_test_temp7$after_24hr_comments
+predictions7w <- predict(model7, newx = Xtest7)
+residuals7w <- Ytest7 - predictions7w
+sum_squared <- 0
+for (i in 1:length(predictions7w)){
+  if(predictions7w[i] > 0){
+    sum_squared <- sum_squared + (1.3 * (predictions7w[i] - Ytest7[i])^2)
+  }
+  else{
+    sum_squared <- sum_squared + (predictions7w[i] - Ytest7[i])^2
+  }
+}
+RMSE3.6w <- sqrt(sum_squared / length(predictions7w))
+RMSE3.6w # 28.59279
 
 
 
 ############### VISUALIZATIONS ############### 
+
 library("ggplot2")
 
 # FUNCTION: CREATE VECTOR OF RESIDS
@@ -480,23 +424,19 @@ vectorize_resids <- function(model, data){
   return(residuals)
 }
 resids1 <- vectorize_resids(model1, validatedata_test)
-resids2 <- vectorize_resids(model2, validatedata_test)
-resids3 <- vectorize_resids(model4, validatedata_test)
-resids4 <- vectorize_resids(model5, validatedata_test)
-resids5 <- vectorize_resids(model6, validatedata_test_temp6w)
-resids6 <- vectorize_resids(model7, validatedata_test)
-resids7 <- vectorize_resids(model8, validatedata_test)
-resids8 <- vectorize_resids(model9, validatedata_test_temp9w)
+resids2 <- residuals2w
+resids3 <- vectorize_resids(model3, validatedata_test)
+resids4 <- vectorize_resids(model4, validatedata_test_temp4w)
+resids5 <- vectorize_resids(model5, validatedata_test)
+resids6 <- residuals7w
 mean_resid1 <- mean(resids1)
 mean_resid2 <- mean(resids2)
 mean_resid3 <- mean(resids3)
 mean_resid4 <- mean(resids4)
 mean_resid5 <- mean(resids5)
 mean_resid6 <- mean(resids6)
-mean_resid7 <- mean(resids7)
-mean_resid8 <- mean(resids8)
 
-par(mfrow=c(2,4))   
+par(mfrow=c(2,3))   
 plot(resids1, cex=0.2, ylim=c(-50,50), main="Model 1 Residuals", xlab="Instance in Validate Set", ylab="Residual Value")
 legend("topleft", legend="mean residual", col="red", pch=19, cex = 0.6)
 points(length(resids1)/2, mean_resid1, pch=19, cex=2, fill="red", col="red")
@@ -515,27 +455,20 @@ points(length(resids5)/2, mean_resid5, pch=19, cex=2, fill="red", col="red")
 plot(resids6, cex=0.2, ylim=c(-50,50), main="Model 6 Residuals", xlab="Instance in Validate Set", ylab="Residual Value")
 legend("topleft", legend="mean residual", col="red", pch=19, cex = 0.6)
 points(length(resids6)/2, mean_resid6, pch=19, cex=2, fill="red", col="red")
-plot(resids7, cex=0.2, ylim=c(-50,50), main="Model 7 Residuals", xlab="Instance in Validate Set", ylab="Residual Value")
-legend("topleft", legend="mean residual", col="red", pch=19, cex = 0.6)
-points(length(resids7)/2, mean_resid7, pch=19, cex=2, fill="red", col="red")
-plot(resids8, cex=0.2, ylim=c(-50,50), main="Model 8 Residuals", xlab="Instance in Validate Set", ylab="Residual Value")
-legend("topleft", legend="mean residual", col="red", pch=19, cex = 0.6)
-points(length(resids8)/2, mean_resid8, pch=19, cex=2, fill="red", col="red")
 
 
 
-r_squareds <- c(0.349, 0.340, 0.349, 0.299, 0.354, 0.349, 0.349, 0.414)
-rmse_unweighted <- c(RMSE3.1, RMSE3.2, RMSE3.4, RMSE3.5, RMSE3.6, RMSE3.7, RMSE3.8, RMSE3.9)
-rmse_weighted <- c(RMSE3.1w, RMSE3.2w, RMSE3.4w, RMSE3.5w, RMSE3.6w, RMSE3.7w, RMSE3.8w, RMSE3.9w)
+r_squareds <- c(0.349, 0.336, 0.349, 0.354, 0.394, 0.335)
+rmse_unweighted <- c(RMSE3.1, RMSE3.2, RMSE3.3, RMSE3.4, RMSE3.5, RMSE3.6)
+rmse_weighted <- c(RMSE3.1w, RMSE3.2w, RMSE3.3w, RMSE3.4w, RMSE3.5w, RMSE3.6w)
 rmse_unweighted
 rmse_weighted
-table(rmse_weighted)
-table(rmse_unweighted)
-models <- c(1,2,3,4,5,6,7,8)
+models <- c(1,2,3,4,5,6)
 RMSE.df <- data.frame(models, table(rmse_weighted), table(rmse_unweighted))
 RMSE.df
 RMSE.df1 <- data.matrix(rmse_weighted, rmse_unweighted)
 RMSE.df1
+length(rmse_weighted)
 
 par(mfrow=c(1,2))   
 barplot(rmse_weighted, names.arg = models,col=rainbow(length(rmse_weighted)), ylim=c(20,45), 
